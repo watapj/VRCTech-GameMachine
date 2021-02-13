@@ -6,24 +6,23 @@ using VRC.Udon;
 
 public class GameMachineSync : UdonSharpBehaviour
 {
-    [SerializeField] private Text playername;
-    [SerializeField] private Text rankingViewer;
-    [SerializeField] private GameObject display,judgecam,collidercube,InterButton;
     public Text debugview;
+    [SerializeField] private Text playername, rankingViewer;
+    [SerializeField] private GameObject display,judgecam,collidercube,InterButton;
     [UdonSynced] private float firstTime, secondTime, thirdTime, nowTime;
     [UdonSynced] private int seed_now, seed_next = 0;
     [UdonSynced] private int firstId, secondId, thirdId, NowPlayerID;
     private VRCPlayerApi localplayer;
+    private VRCPlayerApi[] players;
     private Material matdisplay, matbutton, matInter;
     private Vector3 campos, colliderpos;
     private float y, time, height, totalTime = 0.0f;
     private float PI = 3.14159265359f;
-    public bool isJamp,isSetRanking,isLateJoiner,isForceSync = false;
-    private int seed_orig, gamestate = 0;
+    private bool isJamp,isSetRanking,isLateJoiner,isForceSync = false;
+    private int gamestate = 0;
     private string[] playerNames = new string[4];
     private float[] playerTimes = new float[4];
     private int[] playerIds = new int[4];
-    private VRCPlayerApi[] players;
     public int MaxPlayerCount = 30;
 
     // 初期化
@@ -38,10 +37,10 @@ public class GameMachineSync : UdonSharpBehaviour
         campos = judgecam.transform.position;
         colliderpos = collidercube.transform.position;
         y = campos.y;
+        //同期用
         if(Networking.IsMaster){
-            seed_orig = System.DateTime.Now.Year + System.DateTime.Now.Month * System.DateTime.Now.Day;
-            seed_now = seed_orig;
-            seed_next = seed_orig;
+            seed_now = System.DateTime.Now.Day*System.DateTime.Now.Minute;
+            seed_next = System.DateTime.Now.Day*System.DateTime.Now.Minute;
         }
         for(int i=0; i<=3; i++){
             playerTimes[i] = 0.0f;
@@ -49,16 +48,27 @@ public class GameMachineSync : UdonSharpBehaviour
             playerIds[i] = -1;
         }
         SetRanking();
+        SetCamInactive();
+        matbutton.SetColor("_Color", Color.blue);
+        matInter.SetColor("_Color", Color.green);
     }
     // プレイヤーがJoinしたときの処理. Masterがワールドに入った時も実行される.
     public override void OnPlayerJoined(VRCPlayerApi player) {
         if(Networking.LocalPlayer == player){
-            localplayer = Networking.LocalPlayer;
+            if(!Networking.IsMaster){
+                //localplayer = Networking.LocalPlayer;
+                isLateJoiner = true;
+                matdisplay.SetInt("_GameState", -1);
+                matInter.SetColor("_Color", Color.red);
+            }
         }
+        /*
         if(!Networking.IsMaster){
             isLateJoiner = true;
-            matdisplay.SetInt("_isLate", 1);
+            matdisplay.SetInt("_GameState", -1);
+            matInter.SetColor("_Color", Color.red);
         }
+        // */
         players = VRCPlayerApi.GetPlayers(players);
     }
 
@@ -71,9 +81,9 @@ public class GameMachineSync : UdonSharpBehaviour
                 ResetAllTime();
                 SetRankingforLateJoiner();
                 isLateJoiner = false;
-                matdisplay.SetInt("_isLate", 0);
-                return;
+                matdisplay.SetInt("_GameState", 0);
             }
+            return;
         }
         if(isForceSync){
             totalTime += Time.deltaTime;
@@ -96,9 +106,9 @@ public class GameMachineSync : UdonSharpBehaviour
                     SetNowPlayerID();
                     SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, "SetDisplayName");
                 }
-                matInter.SetColor("_Color", new Color(0.0f, 1.0f, 0.0f));
+                //matInter.SetColor("_Color", Color.green);
             }else{
-                matInter.SetColor("_Color", new Color(1.0f, 0.0f, 0.0f));
+                matInter.SetColor("_Color", Color.red);
             }
         }else if(gamestate==1){ //開始前のカウントダウン
             totalTime += Time.deltaTime;
@@ -107,12 +117,11 @@ public class GameMachineSync : UdonSharpBehaviour
                     SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, "SetNextState");
                     SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, "ResetAllTime");
                 }
-                matdisplay.SetFloat("_TotalTime", totalTime);
-                return;
             }
         }else if(gamestate==2){ //ゲーム中
             totalTime += Time.deltaTime;
             
+            //Ownerの手にのみColliderを追従させる
             if(Networking.IsOwner(this.gameObject)){
                 var cubepos = localplayer.GetBonePosition(HumanBodyBones.RightIndexDistal);
                 collidercube.transform.position = cubepos;
@@ -121,14 +130,15 @@ public class GameMachineSync : UdonSharpBehaviour
             if(isJamp){
                 time += Time.deltaTime;
                 height = Mathf.Sin(mypow(PI * time, 0.8f));
-                height = Mathf.Clamp01(mypow(height, 1.0f) * 0.5f);
+                height = mypow(height, 1.0f) * 0.5f;
                 campos.y = y + height*0.3f;
                 judgecam.transform.position = campos;
 
-                if(time>=1.0 || height<=0.0) {
+                if(height<0.0) {
                     JumpStateFalse();
                 }
             }
+            matdisplay.SetFloat("_Jump", height);
         }else if(gamestate==3){ //ゲームオーバー
             time += Time.deltaTime;
             if(isSetRanking==false){
@@ -146,15 +156,11 @@ public class GameMachineSync : UdonSharpBehaviour
                 }
             }
         }
-        totalTime = gamestate==3 ? nowTime : totalTime;
-        matdisplay.SetFloat("_Jump", height);
         matdisplay.SetFloat("_TotalTime", totalTime);
-        Color buttonCol = isJamp ? new Color(1.0f, 1.0f, 0.0f) : new Color(0.0f, 0.0f, 1.0f);
-        matbutton.SetColor("_Color", buttonCol);
     }
 
     //https://light11.hatenadiary.com/entry/2020/01/17/001035
-    public float mypow(float src, float x){
+    float mypow(float src, float x){
         return src - (src - src * src) * -x;
     }
     float RoundFloat(float num){
@@ -176,46 +182,16 @@ public class GameMachineSync : UdonSharpBehaviour
         seed_next = XorShift(seed_now);
         matdisplay.SetInt("_RandSeed", seed_now);
     }
-
-    void SetDebugView(){
-        string dbg =// "seed_orig : " + seed_orig.ToString() +"\n"
-                     "seed_now  : " + seed_now.ToString() +"\n"
-                    +"seed_next : " + seed_next.ToString() +"\n"
-                    +"IsLateJoiner : "+ isLateJoiner.ToString() + "\n"
-                    +"IsSetRanking : "+ isSetRanking.ToString() + "\n"
-                    +"TotalTime : " + totalTime.ToString() + "\n"
-                    +"time : " + time.ToString() + "\n"
-                    +"firstname : " + playerNames[0] + "\n"
-                    +"firstTime : " + firstTime.ToString() + "\n"
-                    +"secondname : " + playerNames[1] + "\n"
-                    +"secondTime : " + secondTime.ToString() + "\n"
-                    +"thirdname : " + playerNames[2] + "\n"
-                    +"thirdTime : " + thirdTime.ToString() + "\n"
-                    +"playername : " + playerNames[3] + "\n"
-                    +"nowTime : " + nowTime.ToString() + "\n"
-                    +"MyPlayerID : " + localplayer.playerId.ToString() + "\n"
-                    +"NowPlayerID : " + NowPlayerID.ToString() + "\n"
-                    //+"playerIds[0] : " + playerIds[0].ToString() + "\n"
-                    //+"playerIds[1] : " + playerIds[1].ToString() + "\n"
-                    //+"playerIds[2] : " + playerIds[2].ToString() + "\n"
-                    //+"playerIds[3] : " + playerIds[3].ToString() + "\n"
-                    +"PlayerName & ID ↓↓↓" + "\n" ;
-        for(int i=0; i<players.Length; i++){
-            if(players[i]==null) break;
-            dbg += players[i].displayName +" : "+ players[i].playerId.ToString() + "\n";
-        }
-        debugview.text = dbg;
-    }
-
     public void JumpStateTrue(){
         isJamp = true;
+        matbutton.SetColor("_Color", Color.yellow);
     }
     void JumpStateFalse(){
         time = 0.0f;
         height = 0.0f;
         isJamp = false;
+        matbutton.SetColor("_Color", Color.blue);
     }
-    
     void SetCamActive(){
         judgecam.SetActive(true);
     }
@@ -234,6 +210,7 @@ public class GameMachineSync : UdonSharpBehaviour
         totalTime = 0.0f;
         time = 0.0f;
         matdisplay.SetInt("_GameState", gamestate);
+        matbutton.SetColor("_Color", Color.blue);
     }
     public void ResetAllTime(){
         totalTime = 0.0f;
@@ -245,6 +222,7 @@ public class GameMachineSync : UdonSharpBehaviour
                 if(players[i]!=null){
                     if(players[i].playerId==NowPlayerID){
                         playername.text = "PlayerName:" + players[i].displayName;
+            //            playername.text = "PlayerName:" + players[NowPlayerID-1].displayName;
                         break;
                     }
                 }
@@ -260,7 +238,6 @@ public class GameMachineSync : UdonSharpBehaviour
         SetCamInactive();
         collidercube.transform.position = colliderpos;
         nowTime = RoundFloat(totalTime);
-        //nowTime = totalTime;
         if(Networking.IsOwner(this.gameObject)){
             SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, "SetNextState");
             SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, "JumpStateFalse");
@@ -308,15 +285,14 @@ public class GameMachineSync : UdonSharpBehaviour
         BubbleSort(playerTimes, playerIds, playerNames);
         playerTimes[3] = nowTime;
         playerNames[3] = tmp;
-        //SetRanking();
     }
     public void SetRanking(){
         firstId  = playerIds[0]; firstTime  = playerTimes[0];
         secondId = playerIds[1]; secondTime = playerTimes[1];
         thirdId  = playerIds[2]; thirdTime  = playerTimes[2];
-        string rankingText = "1st : "+playerNames[0] +"   "+ playerTimes[0].ToString("F2")  +"\n"
+        string rankingText = "1st : "+playerNames[0] +"   "+ playerTimes[0].ToString("F2") +"\n"
                             +"2nd : "+playerNames[1] +"   "+ playerTimes[1].ToString("F2") +"\n"
-                            +"3rd : "+playerNames[2] +"   "+ playerTimes[2].ToString("F2")  +"\n"
+                            +"3rd : "+playerNames[2] +"   "+ playerTimes[2].ToString("F2") +"\n"
                             +"now : "+playerNames[3] +"   "+ playerTimes[3].ToString("F2");
         rankingViewer.text = rankingText;
     }
@@ -382,6 +358,7 @@ public class GameMachineSync : UdonSharpBehaviour
                 Networking.SetOwner(Networking.LocalPlayer, this.gameObject);
                 SetNowPlayerID();
                 SetDisplayName();
+                matInter.SetColor("_Color", Color.green);
                 return;
             }
         }
@@ -406,4 +383,34 @@ public class GameMachineSync : UdonSharpBehaviour
         }
     }
 
+    //デバック用に各パラメータを表示する。消してもいい。
+    void SetDebugView(){
+        string dbg =// "seed_orig : " + seed_orig.ToString() +"\n"
+                     "seed_now  : " + seed_now.ToString() +"\n"
+                    +"seed_next : " + seed_next.ToString() +"\n"
+                    +"IsLateJoiner : "+ isLateJoiner.ToString() + "\n"
+                    +"IsSetRanking : "+ isSetRanking.ToString() + "\n"
+                    +"TotalTime : " + totalTime.ToString() + "\n"
+                    +"time : " + time.ToString() + "\n"
+                    +"firstname : " + playerNames[0] + "\n"
+                    +"firstTime : " + firstTime.ToString() + "\n"
+                    +"secondname : " + playerNames[1] + "\n"
+                    +"secondTime : " + secondTime.ToString() + "\n"
+                    +"thirdname : " + playerNames[2] + "\n"
+                    +"thirdTime : " + thirdTime.ToString() + "\n"
+                    +"playername : " + playerNames[3] + "\n"
+                    +"nowTime : " + nowTime.ToString() + "\n"
+                    +"MyPlayerID : " + localplayer.playerId.ToString() + "\n"
+                    +"NowPlayerID : " + NowPlayerID.ToString() + "\n"
+                    //+"playerIds[0] : " + playerIds[0].ToString() + "\n"
+                    //+"playerIds[1] : " + playerIds[1].ToString() + "\n"
+                    //+"playerIds[2] : " + playerIds[2].ToString() + "\n"
+                    //+"playerIds[3] : " + playerIds[3].ToString() + "\n"
+                    +"PlayerName & ID ↓↓↓" + "\n" ;
+        for(int i=0; i<players.Length; i++){
+            if(players[i]==null) break;
+            dbg += players[i].displayName +" : "+ players[i].playerId.ToString() + "\n";
+        }
+        debugview.text = dbg;
+    }
 }

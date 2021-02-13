@@ -6,16 +6,12 @@ using VRC.Udon;
 
 public class InteractionButton : UdonSharpBehaviour
 {
-    public UdonBehaviour Machine;//CustomEventはこれで取れる
-    //private VRCPlayerApi localplayer;
+    [SerializeField] private UdonBehaviour Machine;//CustomEventはこれで取れる
     private float time = 0.0f;
     private Collider boxcollider;
     private bool isSynced = false;
 
     void Start(){
-        //if (Networking.LocalPlayer != null){
-        //    localplayer = Networking.LocalPlayer;
-        //}
         boxcollider = this.GetComponent<BoxCollider>();
         if(!Networking.IsMaster){
             boxcollider.enabled = false;

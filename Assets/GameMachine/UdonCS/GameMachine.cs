@@ -6,17 +6,15 @@ using VRC.Udon;
 
 public class GameMachine : UdonSharpBehaviour
 {
-    [SerializeField] private Text playername;
-    [SerializeField] private Text rankingViewer;
+    [SerializeField] private Text playername, rankingViewer;
     [SerializeField] private GameObject display,judgecam,collidercube,InterButton;
-    private float firstTime, secondTime, thirdTime, nowTime;
-    private int seed_now, seed_next, seed_orig, gamestate = 0;
+    private int seed_now, seed_next, gamestate = 0;
     private VRCPlayerApi localplayer;
     private Material matdisplay, matbutton, matInter;
     private Vector3 campos, colliderpos;
-    private float y, time, height, totalTime = 0.0f;
+    private float y, time, height, totalTime, nowTime = 0.0f;
     private float PI = 3.14159265359f;
-    public bool isJamp,isSetRanking, isEditor = false;
+    public bool isJamp,isSetRanking = false;
     private string[] playerNames = new string[4];
     private float[] playerTimes = new float[4];
 
@@ -24,9 +22,6 @@ public class GameMachine : UdonSharpBehaviour
     void Start(){
         if (Networking.LocalPlayer != null){
             localplayer = Networking.LocalPlayer;
-            isEditor = false;
-        }else{
-            isEditor = true;
         }
         matdisplay = display.GetComponent<MeshRenderer>().material;
         matbutton = this.GetComponent<MeshRenderer>().material;
@@ -35,68 +30,60 @@ public class GameMachine : UdonSharpBehaviour
         colliderpos = collidercube.transform.position;
         y = campos.y;
 
-        seed_orig = System.DateTime.Now.Year + System.DateTime.Now.Month * System.DateTime.Now.Day;
-        seed_now = seed_orig;
-        seed_next = seed_orig;
+        seed_now = System.DateTime.Now.Day*System.DateTime.Now.Minute;
+        seed_next = System.DateTime.Now.Day*System.DateTime.Now.Minute;
 
         for(int i=0; i<=3; i++){
             playerTimes[i] = 0.0f;
             playerNames[i] = "_";
         }
         SetRanking();
+        SetCamInactive();
+        matbutton.SetColor("_Color", Color.blue);
+        matInter.SetColor("_Color", Color.green);
     }
 
     // 毎フレーム実行される
     void Update(){
         if(gamestate==0){ //待機画面
             totalTime += Time.deltaTime;
-            matInter.SetColor("_Color", new Color(0.0f, 1.0f, 0.0f));
         }else if(gamestate==1){ //開始前のカウントダウン
             totalTime += Time.deltaTime;
             if(totalTime>=2.998f){
                 SetNextState();
                 ResetAllTime();
-                return;
             }
         }else if(gamestate==2){ //ゲーム中
             totalTime += Time.deltaTime;
             
-            if(isEditor==false){
-                var cubepos = localplayer.GetBonePosition(HumanBodyBones.RightIndexDistal);
-                collidercube.transform.position = cubepos;
-            }
+            var cubepos = localplayer.GetBonePosition(HumanBodyBones.RightIndexDistal);
+            collidercube.transform.position = cubepos;
 
             if(isJamp){
                 time += Time.deltaTime;
                 height = Mathf.Sin(mypow(PI * time, 0.8f));
-                height = Mathf.Clamp01(mypow(height, 1.0f) * 0.5f);
+                height = mypow(height, 1.0f) * 0.5f;
                 campos.y = y + height*0.3f;
                 judgecam.transform.position = campos;
 
-                if(time>=1.0 || height<=0.0) {
+                if(height<0.0) {
                     JumpStateFalse();
                 }
             }
+            matdisplay.SetFloat("_Jump", height);
         }else if(gamestate==3){ //ゲームオーバー
-            time += Time.deltaTime;
             if(isSetRanking==false){
-                if(time>=3.0f){
-                    SortRanking();
-                    SetRanking();
-                    isSetRanking = true;
-                    totalTime = nowTime;
-                }
+                SortRanking();
+                SetRanking();
+                isSetRanking = true;
+                totalTime = nowTime;
             }
         }
-        totalTime = gamestate==3 ? nowTime : totalTime;
-        matdisplay.SetFloat("_Jump", height);
         matdisplay.SetFloat("_TotalTime", totalTime);
-        Color buttonCol = isJamp ? new Color(1.0f, 1.0f, 0.0f) : new Color(0.0f, 0.0f, 1.0f);
-        matbutton.SetColor("_Color", buttonCol);
     }
 
     //https://light11.hatenadiary.com/entry/2020/01/17/001035
-    public float mypow(float src, float x){
+    float mypow(float src, float x){
         return src - (src - src * src) * -x;
     }
     float RoundFloat(float num){
@@ -121,11 +108,13 @@ public class GameMachine : UdonSharpBehaviour
 
     public void JumpStateTrue(){
         isJamp = true;
+        matbutton.SetColor("_Color", Color.yellow);
     }
     void JumpStateFalse(){
         time = 0.0f;
         height = 0.0f;
         isJamp = false;
+        matbutton.SetColor("_Color", Color.blue);
     }
     
     void SetCamActive(){
@@ -146,17 +135,14 @@ public class GameMachine : UdonSharpBehaviour
         totalTime = 0.0f;
         time = 0.0f;
         matdisplay.SetInt("_GameState", gamestate);
+        matbutton.SetColor("_Color", Color.blue);
     }
     public void ResetAllTime(){
         totalTime = 0.0f;
         time = 0.0f;
     }
     public void SetDisplayName(){
-        if(isEditor){
-            playername.text = "PlayerName:" + "Editor Now";
-        }else{
-            playername.text = "PlayerName:" + localplayer.displayName;
-        }
+        playername.text = "PlayerName:" + localplayer.displayName;
     }
 
     public void GameOver(){
@@ -192,24 +178,16 @@ public class GameMachine : UdonSharpBehaviour
 
     public void SortRanking(){
         playerTimes[3] = nowTime;
-        string tmp;
-        if(isEditor){
-            tmp = "Editor Now";
-        }else{
-            tmp = localplayer.displayName;
-        }
+        string tmp = localplayer.displayName;
         playerNames[3] = tmp;
         BubbleSort(playerTimes, playerNames);
         playerTimes[3] = nowTime;
         playerNames[3] = tmp;
     }
     public void SetRanking(){
-        firstTime  = playerTimes[0];
-        secondTime = playerTimes[1];
-        thirdTime  = playerTimes[2];
-        string rankingText = "1st : "+playerNames[0] +"   "+ playerTimes[0].ToString("F2")  +"\n"
+        string rankingText = "1st : "+playerNames[0] +"   "+ playerTimes[0].ToString("F2") +"\n"
                             +"2nd : "+playerNames[1] +"   "+ playerTimes[1].ToString("F2") +"\n"
-                            +"3rd : "+playerNames[2] +"   "+ playerTimes[2].ToString("F2")  +"\n"
+                            +"3rd : "+playerNames[2] +"   "+ playerTimes[2].ToString("F2") +"\n"
                             +"now : "+playerNames[3] +"   "+ playerTimes[3].ToString("F2");
         rankingViewer.text = rankingText;
     }
@@ -238,5 +216,4 @@ public class GameMachine : UdonSharpBehaviour
             JumpStateTrue();
         }
     }
-
 }

@@ -21,7 +21,6 @@ _Jump("Jump", float) = 0.0
 _TotalTime("Total Time", float) = 0.0
 _RandSeed("Rand Seed", int) = 0
 _GameState("Game State", int) = 0
-_isLate("is Late Joiner", int) = 0
 }
 SubShader
 {
@@ -54,7 +53,7 @@ Pass
     sampler2D _Chara1, _Chara2, _Text0, _Text1, _Text2, _Text3, _Text4, _Text5,
               _Text6, _Text7, _Text8, _Text9, _Text10, _Enemy, _NumberTex;
     float _Jump, _TotalTime;
-    int _GameState, _RandSeed, _isLate;
+    int _GameState, _RandSeed;
 
     /*
     [numbertex.shader]
@@ -105,9 +104,10 @@ Pass
     }
 
     float easingb(float x){
-        return x*x*(2*x-1);
+        return x*x*(2.0*x-1.0);
     }
 
+    //https://www.iquilezles.org/www/articles/distfunctions2d/distfunctions2d.htm
     float sdLine(float2 p, float2 a, float2 b){
         float2 pa = p-a, ba = b-a;
         float h = clamp( dot(pa,ba)/dot(ba,ba), 0.0, 1.0 );
@@ -131,12 +131,12 @@ Pass
         uv0.x = frac(uv0.x*grid) - 0.5;
 
         //地平線
-        float d = sdLine(uv0+offs, float2(-0.5, 0.0), float2(0.5, 0.0));
+        float d  = sdLine(uv0+offs, float2(-0.5, 0.0), float2( 0.5 , 0.0));
         float d2 = sdLine(uv0+offs, float2(-0.5, 0.0), float2(-0.45, 0.0));
-        d2 = min(d2, sdLine(uv0+offs, float2(-0.45, 0.0), float2(-0.25, 0.03)));
+        d2 = min(d2, sdLine(uv0+offs, float2(-0.45, 0.0 ), float2(-0.25, 0.03)));
         d2 = min(d2, sdLine(uv0+offs, float2(-0.25, 0.03), float2( 0.25, 0.03)));
-        d2 = min(d2, sdLine(uv0+offs, float2( 0.25, 0.03), float2( 0.45, 0.0)));
-        d2 = min(d2, sdLine(uv0+offs, float2( 0.45, 0.0), float2( 0.5 , 0.0)));
+        d2 = min(d2, sdLine(uv0+offs, float2( 0.25, 0.03), float2( 0.45, 0.0 )));
+        d2 = min(d2, sdLine(uv0+offs, float2( 0.45, 0.0 ), float2( 0.5 , 0.0 )));
         //凸を描画するかどうか
         d = r1>0.85 ? d2 : d;
         col -= step(d, 0.01)*0.8;
@@ -154,8 +154,6 @@ Pass
         float r2 = N21(float2(xid2, _RandSeed/1000.0));
         uv1.x = frac(uv1.x*grid) - 0.5;
 
-        float r3 = N21(float2(r2, _RandSeed/1000.0));
-
         //雲の描画
         offs.y = r2*0.5;
         float d4 = sdLine(uv1-offs, float2(-0.3, 0.0), float2(0.3, 0.0));
@@ -163,6 +161,8 @@ Pass
         d4 = min(d4, sdLine(uv1-offs, float2(-0.2, 0.03), float2(-0.0, 0.03)));
         d4 = min(d4, sdLine(uv1-offs, float2( 0.0, 0.03), float2(0.2, 0.06)));
         d4 = min(d4, sdLine(uv1-offs, float2( 0.2, 0.06), float2(0.3, 0.00)));
+
+        float r3 = N21(float2(r2, _RandSeed/1000.0));
         col -= r3<0.5 ? step(d4, 0.008)*0.2 : 0.0;
 
         col.a = 0.0;
@@ -173,7 +173,7 @@ Pass
     float4 Charactor(float2 uv){
         float2 scale = float2(0.4, 0.7);
         float2 offs = float2(1.0, 0.6-_Jump);
-        float t = floor(fmod(_Time.y*8, 2));
+        float t = floor(fmod(_Time.y*8.0, 2.0));
         float2 chauv = (uv+offs)/scale;
         float4 cha = t==0.0 ? tex2Dlod(_Chara1, float4(chauv, 0,0)) : tex2Dlod(_Chara2, float4(chauv, 0,0));
         cha.rgb = step(cha.rgb, 0.1) * 0.8;
@@ -189,7 +189,8 @@ Pass
         uv.y = (uv.y+1.5)/2.5;
         float4 enemy = tex2Dlod(_Enemy, float4(uv, 0,0));
         enemy.rgb = step(enemy.rgb, 0.1) * 0.8;
-        //キャラクターの部分だけalpha=0.5とする
+
+        //障害物の部分だけalpha=0.5とする
         //他はalpha=0.0
         enemy.a = enemy.a*0.5;
         return enemy;
@@ -199,22 +200,14 @@ Pass
     float4 Standby(float2 uv){
         float4 col = 0.8;
 
-        if(_isLate){
-            float time = floor(fmod(_Time.y, 1.0)*3.0);
-            float4 text = tex2Dlod(_Text10, float4(uv-float2(0.0, 0.25),0,0));
-            col -= (uv.x<0.68+0.03*time)&&uv.y<0.7 ? text : 0.0;
-            col.a = 0.0;
-            return col;
-        }
-
         col -= uv.y>0.5 ? tex2Dlod(_Text0, float4(uv, 0,0)) : 0.0;
 
-        //float time = fmod(_Time.y, 15);
-        float time = fmod(max(_TotalTime, 0.0), 15);
-        float slide1 = easingb(clamp(time- 3.8,  0, 1));
-        float slide2 = easingb(clamp(time- 5.0, -1, 0)) + easingb(clamp(time- 8.8, 0, 1));
-        float slide3 = easingb(clamp(time-10.0, -1, 0)) + easingb(clamp(time-13.8, 0, 1));
-        float slide4 = easingb(clamp(time-15.0, -1, 0));
+        //テクスチャをスライドさせるアニメーションをつくる
+        float time = fmod(max(_TotalTime, 0.0), 15.0);
+        float slide1 = easingb(clamp(time- 3.8,  0.0, 1.0));
+        float slide2 = easingb(clamp(time- 5.0, -1.0, 0.0)) + easingb(clamp(time- 8.8, 0.0, 1.0));
+        float slide3 = easingb(clamp(time-10.0, -1.0, 0.0)) + easingb(clamp(time-13.8, 0.0, 1.0));
+        float slide4 = easingb(clamp(time-15.0, -1.0, 0.0));
 
         if(uv.x>0.43){
             col -= tex2Dlod(_Text1, float4(uv.x-slide1, uv.y, 0, 0));
@@ -222,8 +215,9 @@ Pass
             col -= tex2Dlod(_Text3, float4(uv.x-slide3, uv.y, 0, 0));
             col -= tex2Dlod(_Text1, float4(uv.x-slide4, uv.y, 0, 0));
         }
+
         float pics1 = tex2Dlod(_Text4, float4(uv.x, uv.y, 0, 0)).r;
-        if(time<5){
+        if(time<5.0){
             if(uv.x<0.21){
                 col.gb -= pics1.rr * step(0.01, time-0.75);
             }else if(uv.x<0.29){
@@ -231,12 +225,12 @@ Pass
             }else{
                 col.rb -= pics1.rr * step(0.01, time-2.25);
             }
-        }else if(time<10){
-            float tt = floor(fmod(time*2, 2));
-            col -= tt==0 ? tex2Dlod(_Text5, float4(uv.x, uv.y, 0, 0)) : tex2Dlod(_Text6, float4(uv.x, uv.y, 0, 0));
+        }else if(time<10.0){
+            float tt = floor(fmod(time*2.0, 2.0));
+            col -= tt==0.0 ? tex2Dlod(_Text5, float4(uv.x, uv.y, 0, 0)) : tex2Dlod(_Text6, float4(uv.x, uv.y, 0, 0));
         }else{
             float tt = floor(fmod(time*2.5, 2.5));
-            col -= tt==0 ? tex2Dlod(_Text7, float4(uv.x, uv.y, 0, 0)) : tex2Dlod(_Text8, float4(uv.x, uv.y, 0, 0));
+            col -= tt==0.0 ? tex2Dlod(_Text7, float4(uv.x, uv.y, 0, 0)) : tex2Dlod(_Text8, float4(uv.x, uv.y, 0, 0));
         }
 
         col.a = 0.0;
@@ -250,7 +244,7 @@ Pass
         col -= tex2Dlod(_Text0, float4(uv-float2(0.0, 0.5), 0,0));
 
         float2 scale = 0.5;
-        float2 offs = float2(0.128, 0.25-0.1);
+        float2 offs = float2(0.128, 0.15);
         float num = 3.999 - _TotalTime;
         col -= numbercol((uv-offs)/scale, num, 1,0, 0);
 
@@ -258,6 +252,7 @@ Pass
         uv.x *= 1.0/0.666666; 
         uv.y += 0.2;
 
+        //円環のアニメーション
         float t = frac(_TotalTime);
         float d = length(uv) - 0.4;
         float c = smoothstep(0.001, 0.0, abs(d)-0.05);
@@ -271,19 +266,18 @@ Pass
     //プレイ中
     float4 PlayingNow(float2 uv){
         uv = uv*2.0-1.0;
-        //Displayアス比の調整
-        uv.x *= 1.0/0.666666; 
+        uv.x *= 1.0/0.666666; //Displayアス比の調整
         float4 col = Background(uv);
 
         col -= (_TotalTime<0.5 && uv.y<0.2) ? tex2Dlod(_Text9, float4(uv*0.5+float2(0.5, 0.1), 0,0)) : 0.0;
 
-        //view totaltime
+        //totaltimeを表示
         float2 uvt = uv;
         float2 offs = float2(0.65, 0.535);
         float2 scales = float2(0.75, 0.225);
         col -= numbercol((uvt-offs)/scales, _TotalTime, 3,2, 1.0);
 
-        //view [TIME:]
+        //"TIME:"を表示
         uvt = uv-float2(0.275,0.29);
         uvt = max(abs(uvt.x), abs(uvt.y-0.7))>0.5 ? 0.0 : uvt;
         col -= uvt.y<0.5 ? tex2Dlod(_Text9, float4(uvt,0,0)) : 0.0;
@@ -297,32 +291,33 @@ Pass
         float2 uv1 = uv;
         float grid = 8.0;
         uv1.x += _TotalTime;
-        int xid = floor(uv1.x*grid);
-        xid = fmod(xid, 500);
+        float xid = floor(uv1.x*grid);
+        //xid = fmod(xid, 500);
         uv1.x = frac(uv1.x*grid);
-        float r1 = N21(float2((float)xid, _RandSeed/10000.0));
+        float r1 = N21(float2(xid, _RandSeed/10000.0));
 
-        float threshold = 0.1;
         //無理配置の回避
-        float r0 = N21(float2((float)xid+1, _RandSeed/10000.0));
-        float r2 = N21(float2((float)xid-1, _RandSeed/10000.0));
-        float r3 = N21(float2((float)xid-2, _RandSeed/10000.0));
-        float r4 = N21(float2((float)xid-3, _RandSeed/10000.0));
-        float r5 = N21(float2((float)xid-4, _RandSeed/10000.0));
+        float r0 = N21(float2(xid+1.0, _RandSeed/10000.0)); //ひとつ前のセル
+        float r2 = N21(float2(xid-1.0, _RandSeed/10000.0)); //ひとつ後ろのセル
+        float r3 = N21(float2(xid-2.0, _RandSeed/10000.0)); //ふたつ後ろのセル
+        float r4 = N21(float2(xid-3.0, _RandSeed/10000.0)); //みっつ後ろのセル
 
+        //前後のセルの障害物の出現条件を見て、障害物を生成するかどうか判断する
+        float threshold = 0.1;
         r1 = (r1<threshold && r0>threshold && r3<threshold) ? 1.0 : r1;
-        r1 = ((_TotalTime<60.0 || xid<480) && r2<threshold && r3<threshold && r5<threshold) ? 1.0 : r1;
+        r1 = ((_TotalTime<40.0 || xid<330) && r2<threshold && r3<threshold) ? 1.0 : r1;
         r2 = step(threshold, r2);
         r3 = step(threshold, r3);
         r4 = step(threshold, r4);
-        r5 = step(threshold, r5);
-        r1 = ((_TotalTime<30.0 || xid<250) && r2+r3+r4<=2) ? 1.0 : r1;
+        r1 = ((_TotalTime<20.0 || xid<170) && r2+r3+r4<=2) ? 1.0 : r1;
 
         offs = float2(0.0, 0.3);
-        uv1 = (uv1+offs)/float2(1., 0.18);
+        float2 scale = float2(1., 0.18);
+        uv1 = (uv1+offs)/scale;
         float4 enemys = r1<threshold&&xid>15 ? Enemy(uv1) : 0.0;
         col = lerp(col, enemys, enemys.a*2.0);
 
+        //alphaをいったん0にしてから、charactorとenemysのalphaだけを使う
         col.a = 0.0;
         col.a = cha.a+enemys.a;
         return saturate(col);
@@ -343,6 +338,17 @@ Pass
         col.a = 0.0;
         return saturate(col);
     }
+    
+    //同期待ちのための画面
+    float4 forLateJoiner(float2 uv){
+        float4 col = 0.8;
+        float time = floor(fmod(_Time.y, 1.0)*3.0);
+        float2 offs = float2(0.0, 0.25);
+        float4 text = tex2Dlod(_Text10, float4(uv-offs, 0, 0));
+        col -= (uv.x<0.68+0.03*time)&&uv.y<0.7 ? text : 0.0;
+        col.a = 0.0;
+        return col;
+    }
 
     float4 ForceSync(float2 uv){
         float4 col = 0.8;
@@ -353,7 +359,7 @@ Pass
         float2 scale = 0.5;
         float2 offs = float2(0.128, 0.05);
         float num = 5.999 - _TotalTime;
-        col -= numbercol((uv-offs)/scale, num, 1,0, 0);
+        col -= numbercol((uv-offs)/scale, num, 1, 0, 0);
 
         col.a = 0.0;
         return saturate(col);
@@ -361,23 +367,25 @@ Pass
 
     float4 frag (v2f i) : SV_Target
     {
-        float2 uv = i.uv; 
-
         //UDONから渡されるGameStateから描画するSceneを決定
         if(_GameState==0){
-            return Standby(uv);
+            return Standby(i.uv);
         }else if(_GameState==1){
-            return CountDown(uv);
+            return CountDown(i.uv);
+        }else if(_GameState==2){
+            return PlayingNow(i.uv);
         }else if(_GameState==3){
-            return GameOver(uv);
+            return GameOver(i.uv);
         }else if(_GameState==4){
-            return ForceSync(uv);
+            return ForceSync(i.uv);
         }
-        //_GameState==2
-        return PlayingNow(uv);
+        //_GameState==-1
+        return forLateJoiner(i.uv);
     }
     ENDCG
 }
+
+//最小限の記述でできるShadowCaster（落ち影の描画）
 Pass {
     Name "ShadowCaster"
     Tags {
@@ -410,5 +418,6 @@ Pass {
     ENDCG
 }
 }
+//ShadowCasterを自前で実装しなくても以下の記述だけで落ち影はとりあえず描画できる
 //FallBack "Diffuse"
 }
